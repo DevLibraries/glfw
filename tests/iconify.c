@@ -1,6 +1,6 @@
 //========================================================================
 // Iconify/restore test program
-// Copyright (c) Camilla Berglund <elmindreda@elmindreda.org>
+// Copyright (c) Camilla Löwy <elmindreda@glfw.org>
 //
 // This software is provided 'as-is', without any express or implied
 // warranty. In no event will the authors be held liable for any damages
@@ -24,31 +24,35 @@
 //========================================================================
 //
 // This program is used to test the iconify/restore functionality for
-// both fullscreen and windowed mode windows
+// both full screen and windowed mode windows
 //
 //========================================================================
 
-#include <GL/glfw3.h>
+#include <glad/glad.h>
+#include <GLFW/glfw3.h>
 
 #include <stdio.h>
 #include <stdlib.h>
 
 #include "getopt.h"
 
-static GLboolean closed = GL_FALSE;
+static int windowed_xpos, windowed_ypos, windowed_width, windowed_height;
 
 static void usage(void)
 {
-    printf("Usage: iconify [-h] [-f]\n");
+    printf("Usage: iconify [-h] [-f [-a] [-n]]\n");
+    printf("Options:\n");
+    printf("  -a create windows for all monitors\n");
+    printf("  -f create full screen window(s)\n");
+    printf("  -h show this help\n");
 }
 
-static int window_close_callback(GLFWwindow window)
+static void error_callback(int error, const char* description)
 {
-    closed = GL_TRUE;
-    return GL_FALSE;
+    fprintf(stderr, "Error: %s\n", description);
 }
 
-static void key_callback(GLFWwindow window, int key, int action)
+static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
     printf("%0.2f Key %s\n",
            glfwGetTime(),
@@ -59,52 +63,161 @@ static void key_callback(GLFWwindow window, int key, int action)
 
     switch (key)
     {
-        case GLFW_KEY_SPACE:
+        case GLFW_KEY_I:
             glfwIconifyWindow(window);
             break;
-        case GLFW_KEY_ESCAPE:
-            closed = GL_TRUE;
+        case GLFW_KEY_M:
+            glfwMaximizeWindow(window);
             break;
+        case GLFW_KEY_R:
+            glfwRestoreWindow(window);
+            break;
+        case GLFW_KEY_ESCAPE:
+            glfwSetWindowShouldClose(window, GLFW_TRUE);
+            break;
+        case GLFW_KEY_A:
+            glfwSetWindowAttrib(window, GLFW_AUTO_ICONIFY, !glfwGetWindowAttrib(window, GLFW_AUTO_ICONIFY));
+            break;
+        case GLFW_KEY_B:
+            glfwSetWindowAttrib(window, GLFW_RESIZABLE, !glfwGetWindowAttrib(window, GLFW_RESIZABLE));
+            break;
+        case GLFW_KEY_D:
+            glfwSetWindowAttrib(window, GLFW_DECORATED, !glfwGetWindowAttrib(window, GLFW_DECORATED));
+            break;
+        case GLFW_KEY_F:
+            glfwSetWindowAttrib(window, GLFW_FLOATING, !glfwGetWindowAttrib(window, GLFW_FLOATING));
+            break;
+        case GLFW_KEY_F11:
+        case GLFW_KEY_ENTER:
+        {
+            if (mods != GLFW_MOD_ALT)
+                return;
+
+            if (glfwGetWindowMonitor(window))
+            {
+                glfwSetWindowMonitor(window, NULL,
+                                     windowed_xpos, windowed_ypos,
+                                     windowed_width, windowed_height,
+                                     0);
+            }
+            else
+            {
+                GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+                if (monitor)
+                {
+                    const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+                    glfwGetWindowPos(window, &windowed_xpos, &windowed_ypos);
+                    glfwGetWindowSize(window, &windowed_width, &windowed_height);
+                    glfwSetWindowMonitor(window, monitor,
+                                         0, 0, mode->width, mode->height,
+                                         mode->refreshRate);
+                }
+            }
+
+            break;
+        }
     }
 }
 
-static void window_size_callback(GLFWwindow window, int width, int height)
+static void window_size_callback(GLFWwindow* window, int width, int height)
 {
     printf("%0.2f Window resized to %ix%i\n", glfwGetTime(), width, height);
+}
+
+static void framebuffer_size_callback(GLFWwindow* window, int width, int height)
+{
+    printf("%0.2f Framebuffer resized to %ix%i\n", glfwGetTime(), width, height);
 
     glViewport(0, 0, width, height);
 }
 
-static void window_focus_callback(GLFWwindow window, int focused)
+static void window_focus_callback(GLFWwindow* window, int focused)
 {
     printf("%0.2f Window %s\n",
            glfwGetTime(),
            focused ? "focused" : "defocused");
 }
 
-static void window_iconify_callback(GLFWwindow window, int iconified)
+static void window_iconify_callback(GLFWwindow* window, int iconified)
 {
     printf("%0.2f Window %s\n",
            glfwGetTime(),
-           iconified ? "iconified" : "restored");
+           iconified ? "iconified" : "uniconified");
+}
+
+static void window_maximize_callback(GLFWwindow* window, int maximized)
+{
+    printf("%0.2f Window %s\n",
+           glfwGetTime(),
+           maximized ? "maximized" : "unmaximized");
+}
+
+static void window_refresh_callback(GLFWwindow* window)
+{
+    printf("%0.2f Window refresh\n", glfwGetTime());
+
+    glfwMakeContextCurrent(window);
+
+    glClear(GL_COLOR_BUFFER_BIT);
+    glfwSwapBuffers(window);
+}
+
+static GLFWwindow* create_window(GLFWmonitor* monitor)
+{
+    int width, height;
+    GLFWwindow* window;
+
+    if (monitor)
+    {
+        const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+
+        glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
+        glfwWindowHint(GLFW_RED_BITS, mode->redBits);
+        glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
+        glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
+
+        width = mode->width;
+        height = mode->height;
+    }
+    else
+    {
+        width = 640;
+        height = 480;
+    }
+
+    window = glfwCreateWindow(width, height, "Iconify", monitor, NULL);
+    if (!window)
+    {
+        glfwTerminate();
+        exit(EXIT_FAILURE);
+    }
+
+    glfwMakeContextCurrent(window);
+    gladLoadGLLoader((GLADloadproc) glfwGetProcAddress);
+
+    return window;
 }
 
 int main(int argc, char** argv)
 {
-    int width, height, ch;
-    int mode = GLFW_WINDOWED;
-    GLFWwindow window;
+    int ch, i, window_count;
+    int fullscreen = GLFW_FALSE, all_monitors = GLFW_FALSE;
+    GLFWwindow** windows;
 
-    while ((ch = getopt(argc, argv, "fh")) != -1)
+    while ((ch = getopt(argc, argv, "afhn")) != -1)
     {
         switch (ch)
         {
+            case 'a':
+                all_monitors = GLFW_TRUE;
+                break;
+
             case 'h':
                 usage();
                 exit(EXIT_SUCCESS);
 
             case 'f':
-                mode = GLFW_FULLSCREEN;
+                fullscreen = GLFW_TRUE;
                 break;
 
             default:
@@ -113,63 +226,70 @@ int main(int argc, char** argv)
         }
     }
 
-    if (!glfwInit())
-    {
-        fprintf(stderr, "Failed to initialize GLFW: %s\n", glfwErrorString(glfwGetError()));
-        exit(EXIT_FAILURE);
-    }
+    glfwSetErrorCallback(error_callback);
 
-    if (mode == GLFW_FULLSCREEN)
+    if (!glfwInit())
+        exit(EXIT_FAILURE);
+
+    if (fullscreen && all_monitors)
     {
-        GLFWvidmode desktop_mode;
-        glfwGetDesktopMode(&desktop_mode);
-        width = desktop_mode.width;
-        height = desktop_mode.height;
+        int monitor_count;
+        GLFWmonitor** monitors = glfwGetMonitors(&monitor_count);
+
+        window_count = monitor_count;
+        windows = calloc(window_count, sizeof(GLFWwindow*));
+
+        for (i = 0;  i < monitor_count;  i++)
+        {
+            windows[i] = create_window(monitors[i]);
+            if (!windows[i])
+                break;
+        }
     }
     else
     {
-        width = 640;
-        height = 480;
+        GLFWmonitor* monitor = NULL;
+
+        if (fullscreen)
+            monitor = glfwGetPrimaryMonitor();
+
+        window_count = 1;
+        windows = calloc(window_count, sizeof(GLFWwindow*));
+        windows[0] = create_window(monitor);
     }
 
-    window = glfwCreateWindow(width, height, mode, "Iconify", NULL);
-    if (!window)
+    for (i = 0;  i < window_count;  i++)
     {
-        glfwTerminate();
+        glfwSetKeyCallback(windows[i], key_callback);
+        glfwSetFramebufferSizeCallback(windows[i], framebuffer_size_callback);
+        glfwSetWindowSizeCallback(windows[i], window_size_callback);
+        glfwSetWindowFocusCallback(windows[i], window_focus_callback);
+        glfwSetWindowIconifyCallback(windows[i], window_iconify_callback);
+        glfwSetWindowMaximizeCallback(windows[i], window_maximize_callback);
+        glfwSetWindowRefreshCallback(windows[i], window_refresh_callback);
 
-        fprintf(stderr, "Failed to open GLFW window: %s\n", glfwErrorString(glfwGetError()));
-        exit(EXIT_FAILURE);
+        window_refresh_callback(windows[i]);
+
+        printf("Window is %s and %s\n",
+            glfwGetWindowAttrib(windows[i], GLFW_ICONIFIED) ? "iconified" : "restored",
+            glfwGetWindowAttrib(windows[i], GLFW_FOCUSED) ? "focused" : "defocused");
     }
 
-    glfwMakeContextCurrent(window);
-    glfwSwapInterval(1);
-
-    glfwSetKeyCallback(window, key_callback);
-    glfwSetWindowSizeCallback(window, window_size_callback);
-    glfwSetWindowCloseCallback(window, window_close_callback);
-    glfwSetWindowFocusCallback(window, window_focus_callback);
-    glfwSetWindowIconifyCallback(window, window_iconify_callback);
-
-    printf("Window is %s and %s\n",
-           glfwGetWindowParam(window, GLFW_ICONIFIED) ? "iconified" : "restored",
-           glfwGetWindowParam(window, GLFW_FOCUSED) ? "focused" : "defocused");
-
-    glEnable(GL_SCISSOR_TEST);
-
-    while (!closed)
+    for (;;)
     {
-        glfwGetWindowSize(window, &width, &height);
+        glfwWaitEvents();
 
-        glScissor(0, 0, width, height);
-        glClearColor(0, 0, 0, 0);
-        glClear(GL_COLOR_BUFFER_BIT);
+        for (i = 0;  i < window_count;  i++)
+        {
+            if (glfwWindowShouldClose(windows[i]))
+                break;
+        }
 
-        glScissor(0, 0, 640, 480);
-        glClearColor(1, 1, 1, 0);
-        glClear(GL_COLOR_BUFFER_BIT);
+        if (i < window_count)
+            break;
 
-        glfwSwapBuffers(window);
-        glfwPollEvents();
+        // Workaround for an issue with msvcrt and mintty
+        fflush(stdout);
     }
 
     glfwTerminate();

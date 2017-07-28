@@ -1,6 +1,6 @@
 //========================================================================
 // Clipboard test program
-// Copyright (c) Camilla Berglund <elmindreda@elmindreda.org>
+// Copyright (c) Camilla Löwy <elmindreda@glfw.org>
 //
 // This software is provided 'as-is', without any express or implied
 // warranty. In no event will the authors be held liable for any damages
@@ -27,33 +27,31 @@
 //
 //========================================================================
 
-#include <GL/glfw3.h>
+#include <glad/glad.h>
+#include <GLFW/glfw3.h>
 
 #include <stdio.h>
 #include <stdlib.h>
 
 #include "getopt.h"
 
-static GLboolean closed = GL_FALSE;
+#if defined(__APPLE__)
+ #define MODIFIER GLFW_MOD_SUPER
+#else
+ #define MODIFIER GLFW_MOD_CONTROL
+#endif
 
 static void usage(void)
 {
     printf("Usage: clipboard [-h]\n");
 }
 
-static GLboolean control_is_down(GLFWwindow window)
+static void error_callback(int error, const char* description)
 {
-    return glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) ||
-           glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL);
+    fprintf(stderr, "Error: %s\n", description);
 }
 
-static int window_close_callback(GLFWwindow window)
-{
-    closed = GL_TRUE;
-    return GL_FALSE;
-}
-
-static void key_callback(GLFWwindow window, int key, int action)
+static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
     if (action != GLFW_PRESS)
         return;
@@ -61,11 +59,11 @@ static void key_callback(GLFWwindow window, int key, int action)
     switch (key)
     {
         case GLFW_KEY_ESCAPE:
-            closed = GL_TRUE;
+            glfwSetWindowShouldClose(window, GLFW_TRUE);
             break;
 
         case GLFW_KEY_V:
-            if (control_is_down(window))
+            if (mods == MODIFIER)
             {
                 const char* string;
 
@@ -78,7 +76,7 @@ static void key_callback(GLFWwindow window, int key, int action)
             break;
 
         case GLFW_KEY_C:
-            if (control_is_down(window))
+            if (mods == MODIFIER)
             {
                 const char* string = "Hello GLFW World!";
                 glfwSetClipboardString(window, string);
@@ -88,20 +86,15 @@ static void key_callback(GLFWwindow window, int key, int action)
     }
 }
 
-static void window_size_callback(GLFWwindow window, int width, int height)
+static void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {
     glViewport(0, 0, width, height);
-}
-
-static void error_callback(int error, const char* description)
-{
-    fprintf(stderr, "Error in %s\n", description);
 }
 
 int main(int argc, char** argv)
 {
     int ch;
-    GLFWwindow window;
+    GLFWwindow* window;
 
     while ((ch = getopt(argc, argv, "h")) != -1)
     {
@@ -125,7 +118,7 @@ int main(int argc, char** argv)
         exit(EXIT_FAILURE);
     }
 
-    window = glfwCreateWindow(200, 200, GLFW_WINDOWED, "Clipboard Test", NULL);
+    window = glfwCreateWindow(200, 200, "Clipboard Test", NULL, NULL);
     if (!window)
     {
         glfwTerminate();
@@ -135,24 +128,17 @@ int main(int argc, char** argv)
     }
 
     glfwMakeContextCurrent(window);
+    gladLoadGLLoader((GLADloadproc) glfwGetProcAddress);
     glfwSwapInterval(1);
 
     glfwSetKeyCallback(window, key_callback);
-    glfwSetWindowSizeCallback(window, window_size_callback);
-    glfwSetWindowCloseCallback(window, window_close_callback);
-
-    glMatrixMode(GL_PROJECTION);
-    glOrtho(-1.f, 1.f, -1.f, 1.f, -1.f, 1.f);
-    glMatrixMode(GL_MODELVIEW);
+    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
     glClearColor(0.5f, 0.5f, 0.5f, 0);
 
-    while (!closed)
+    while (!glfwWindowShouldClose(window))
     {
         glClear(GL_COLOR_BUFFER_BIT);
-
-        glColor3f(0.8f, 0.2f, 0.4f);
-        glRectf(-0.5f, -0.5f, 0.5f, 0.5f);
 
         glfwSwapBuffers(window);
         glfwWaitEvents();

@@ -1,11 +1,8 @@
 //========================================================================
-// GLFW - An OpenGL library
-// Platform:    Win32
-// API version: 3.0
-// WWW:         http://www.glfw.org/
+// GLFW 3.3 Win32 - www.glfw.org
 //------------------------------------------------------------------------
 // Copyright (c) 2002-2006 Marcus Geelnard
-// Copyright (c) 2006-2010 Camilla Berglund <elmindreda@elmindreda.org>
+// Copyright (c) 2006-2016 Camilla Löwy <elmindreda@glfw.org>
 //
 // This software is provided 'as-is', without any express or implied
 // warranty. In no event will the authors be held liable for any damages
@@ -35,25 +32,21 @@
 //////                       GLFW internal API                      //////
 //////////////////////////////////////////////////////////////////////////
 
-//========================================================================
 // Initialise timer
-//========================================================================
-
-void _glfwInitTimer(void)
+//
+void _glfwInitTimerWin32(void)
 {
-    __int64 freq;
+    uint64_t frequency;
 
-    if (QueryPerformanceFrequency((LARGE_INTEGER*) &freq))
+    if (QueryPerformanceFrequency((LARGE_INTEGER*) &frequency))
     {
-        _glfwLibrary.Win32.timer.hasPC = GL_TRUE;
-        _glfwLibrary.Win32.timer.resolution = 1.0 / (double) freq;
-        QueryPerformanceCounter((LARGE_INTEGER*) &_glfwLibrary.Win32.timer.t0_64);
+        _glfw.timer.win32.hasPC = GLFW_TRUE;
+        _glfw.timer.win32.frequency = frequency;
     }
     else
     {
-        _glfwLibrary.Win32.timer.hasPC = GL_FALSE;
-        _glfwLibrary.Win32.timer.resolution = 0.001; // winmm resolution is 1 ms
-        _glfwLibrary.Win32.timer.t0_32 = _glfw_timeGetTime();
+        _glfw.timer.win32.hasPC = GLFW_FALSE;
+        _glfw.timer.win32.frequency = 1000;
     }
 }
 
@@ -62,41 +55,20 @@ void _glfwInitTimer(void)
 //////                       GLFW platform API                      //////
 //////////////////////////////////////////////////////////////////////////
 
-//========================================================================
-// Return timer value in seconds
-//========================================================================
-
-double _glfwPlatformGetTime(void)
+uint64_t _glfwPlatformGetTimerValue(void)
 {
-    double t;
-    __int64 t_64;
-
-    if (_glfwLibrary.Win32.timer.hasPC)
+    if (_glfw.timer.win32.hasPC)
     {
-        QueryPerformanceCounter((LARGE_INTEGER*) &t_64);
-        t =  (double)(t_64 - _glfwLibrary.Win32.timer.t0_64);
+        uint64_t value;
+        QueryPerformanceCounter((LARGE_INTEGER*) &value);
+        return value;
     }
     else
-        t = (double)(_glfw_timeGetTime() - _glfwLibrary.Win32.timer.t0_32);
-
-    return t * _glfwLibrary.Win32.timer.resolution;
+        return (uint64_t) timeGetTime();
 }
 
-
-//========================================================================
-// Set timer value in seconds
-//========================================================================
-
-void _glfwPlatformSetTime(double t)
+uint64_t _glfwPlatformGetTimerFrequency(void)
 {
-    __int64 t_64;
-
-    if (_glfwLibrary.Win32.timer.hasPC)
-    {
-        QueryPerformanceCounter((LARGE_INTEGER*) &t_64);
-        _glfwLibrary.Win32.timer.t0_64 = t_64 - (__int64) (t / _glfwLibrary.Win32.timer.resolution);
-    }
-    else
-        _glfwLibrary.Win32.timer.t0_32 = _glfw_timeGetTime() - (int)(t * 1000.0);
+    return _glfw.timer.win32.frequency;
 }
 

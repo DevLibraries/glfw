@@ -1,6 +1,6 @@
 //========================================================================
 // Window re-opener (open/close stress test)
-// Copyright (c) Camilla Berglund <elmindreda@elmindreda.org>
+// Copyright (c) Camilla Löwy <elmindreda@glfw.org>
 //
 // This software is provided 'as-is', without any express or implied
 // warranty. In no event will the authors be held liable for any damages
@@ -26,47 +26,57 @@
 // This test came about as the result of bug #1262773
 //
 // It closes and re-opens the GLFW window every five seconds, alternating
-// between windowed and fullscreen mode
+// between windowed and full screen mode
 //
 // It also times and logs opening and closing actions and attempts to separate
 // user initiated window closing from its own
 //
 //========================================================================
 
-#include <GL/glfw3.h>
+#include <glad/glad.h>
+#include <GLFW/glfw3.h>
 
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-static GLFWwindow window_handle = NULL;
-static GLboolean closed = GL_FALSE;
+#include "linmath.h"
 
-static const char* get_mode_name(int mode)
+static const char* vertex_shader_text =
+"#version 110\n"
+"uniform mat4 MVP;\n"
+"attribute vec2 vPos;\n"
+"void main()\n"
+"{\n"
+"    gl_Position = MVP * vec4(vPos, 0.0, 1.0);\n"
+"}\n";
+
+static const char* fragment_shader_text =
+"#version 110\n"
+"void main()\n"
+"{\n"
+"    gl_FragColor = vec4(1.0);\n"
+"}\n";
+
+static const vec2 vertices[4] =
 {
-    switch (mode)
-    {
-        case GLFW_WINDOWED:
-            return "windowed";
-        case GLFW_FULLSCREEN:
-            return "fullscreen";
-        default:
-            return "unknown";
-    }
+    { -0.5f, -0.5f },
+    {  0.5f, -0.5f },
+    {  0.5f,  0.5f },
+    { -0.5f,  0.5f }
+};
+
+static void error_callback(int error, const char* description)
+{
+    fprintf(stderr, "Error: %s\n", description);
 }
 
-static void window_size_callback(GLFWwindow window, int width, int height)
-{
-    glViewport(0, 0, width, height);
-}
-
-static int window_close_callback(GLFWwindow window)
+static void window_close_callback(GLFWwindow* window)
 {
     printf("Close callback triggered\n");
-    closed = GL_TRUE;
-    return 0;
 }
 
-static void key_callback(GLFWwindow window, int key, int action)
+static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
     if (action != GLFW_PRESS)
         return;
@@ -75,89 +85,142 @@ static void key_callback(GLFWwindow window, int key, int action)
     {
         case GLFW_KEY_Q:
         case GLFW_KEY_ESCAPE:
-            closed = GL_TRUE;
+            glfwSetWindowShouldClose(window, GLFW_TRUE);
             break;
     }
 }
 
-static GLboolean open_window(int width, int height, int mode)
-{
-    double base;
-
-    if (!glfwInit())
-    {
-        fprintf(stderr, "Failed to initialize GLFW: %s\n", glfwErrorString(glfwGetError()));
-        return GL_FALSE;
-    }
-
-    base = glfwGetTime();
-
-    window_handle = glfwCreateWindow(width, height, mode, "Window Re-opener", NULL);
-    if (!window_handle)
-    {
-        fprintf(stderr, "Failed to open %s mode GLFW window: %s\n", get_mode_name(mode), glfwErrorString(glfwGetError()));
-        return GL_FALSE;
-    }
-
-    glfwMakeContextCurrent(window_handle);
-    glfwSwapInterval(1);
-
-    glfwSetWindowSizeCallback(window_handle, window_size_callback);
-    glfwSetWindowCloseCallback(window_handle, window_close_callback);
-    glfwSetKeyCallback(window_handle, key_callback);
-
-    printf("Opening %s mode window took %0.3f seconds\n",
-           get_mode_name(mode),
-           glfwGetTime() - base);
-
-    return GL_TRUE;
-}
-
-static void close_window(void)
+static void close_window(GLFWwindow* window)
 {
     double base = glfwGetTime();
-
-    glfwDestroyWindow(window_handle);
-    window_handle = NULL;
-
+    glfwDestroyWindow(window);
     printf("Closing window took %0.3f seconds\n", glfwGetTime() - base);
-
-    glfwTerminate();
 }
 
 int main(int argc, char** argv)
 {
     int count = 0;
+    double base;
+    GLFWwindow* window;
+
+    srand((unsigned int) time(NULL));
+
+    glfwSetErrorCallback(error_callback);
+
+    if (!glfwInit())
+        exit(EXIT_FAILURE);
+
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
 
     for (;;)
     {
-        if (!open_window(640, 480, (count & 1) ? GLFW_FULLSCREEN : GLFW_WINDOWED))
+        int width, height;
+        GLFWmonitor* monitor = NULL;
+        GLuint vertex_shader, fragment_shader, program, vertex_buffer;
+        GLint mvp_location, vpos_location;
+
+        if (count & 1)
+        {
+            int monitorCount;
+            GLFWmonitor** monitors = glfwGetMonitors(&monitorCount);
+            monitor = monitors[rand() % monitorCount];
+        }
+
+        if (monitor)
+        {
+            const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+            width = mode->width;
+            height = mode->height;
+        }
+        else
+        {
+            width = 640;
+            height = 480;
+        }
+
+        base = glfwGetTime();
+
+        window = glfwCreateWindow(width, height, "Window Re-opener", monitor, NULL);
+        if (!window)
         {
             glfwTerminate();
             exit(EXIT_FAILURE);
         }
 
-        glMatrixMode(GL_PROJECTION);
-        glOrtho(-1.f, 1.f, -1.f, 1.f, 1.f, -1.f);
-        glMatrixMode(GL_MODELVIEW);
+        if (monitor)
+        {
+            printf("Opening full screen window on monitor %s took %0.3f seconds\n",
+                   glfwGetMonitorName(monitor),
+                   glfwGetTime() - base);
+        }
+        else
+        {
+            printf("Opening regular window took %0.3f seconds\n",
+                   glfwGetTime() - base);
+        }
+
+        glfwSetWindowCloseCallback(window, window_close_callback);
+        glfwSetKeyCallback(window, key_callback);
+
+        glfwMakeContextCurrent(window);
+        gladLoadGLLoader((GLADloadproc) glfwGetProcAddress);
+        glfwSwapInterval(1);
+
+        vertex_shader = glCreateShader(GL_VERTEX_SHADER);
+        glShaderSource(vertex_shader, 1, &vertex_shader_text, NULL);
+        glCompileShader(vertex_shader);
+
+        fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
+        glShaderSource(fragment_shader, 1, &fragment_shader_text, NULL);
+        glCompileShader(fragment_shader);
+
+        program = glCreateProgram();
+        glAttachShader(program, vertex_shader);
+        glAttachShader(program, fragment_shader);
+        glLinkProgram(program);
+
+        mvp_location = glGetUniformLocation(program, "MVP");
+        vpos_location = glGetAttribLocation(program, "vPos");
+
+        glGenBuffers(1, &vertex_buffer);
+        glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+
+        glEnableVertexAttribArray(vpos_location);
+        glVertexAttribPointer(vpos_location, 2, GL_FLOAT, GL_FALSE,
+                              sizeof(vertices[0]), (void*) 0);
 
         glfwSetTime(0.0);
 
         while (glfwGetTime() < 5.0)
         {
+            float ratio;
+            int width, height;
+            mat4x4 m, p, mvp;
+
+            glfwGetFramebufferSize(window, &width, &height);
+            ratio = width / (float) height;
+
+            glViewport(0, 0, width, height);
             glClear(GL_COLOR_BUFFER_BIT);
 
-            glPushMatrix();
-            glRotatef((GLfloat) glfwGetTime() * 100.f, 0.f, 0.f, 1.f);
-            glRectf(-0.5f, -0.5f, 1.f, 1.f);
-            glPopMatrix();
+            mat4x4_ortho(p, -ratio, ratio, -1.f, 1.f, 0.f, 1.f);
 
-            glfwSwapBuffers(window_handle);
+            mat4x4_identity(m);
+            mat4x4_rotate_Z(m, m, (float) glfwGetTime());
+            mat4x4_mul(mvp, p, m);
+
+            glUseProgram(program);
+            glUniformMatrix4fv(mvp_location, 1, GL_FALSE, (const GLfloat*) mvp);
+            glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+
+            glfwSwapBuffers(window);
             glfwPollEvents();
 
-            if (closed)
+            if (glfwWindowShouldClose(window))
             {
-                close_window();
+                close_window(window);
                 printf("User closed window\n");
 
                 glfwTerminate();
@@ -166,9 +229,11 @@ int main(int argc, char** argv)
         }
 
         printf("Closing window\n");
-        close_window();
+        close_window(window);
 
         count++;
     }
+
+    glfwTerminate();
 }
 

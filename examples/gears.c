@@ -15,30 +15,24 @@
  *   - Slightly modified camera that should work better for stereo viewing
  *
  *
- * Camilla Berglund:
+ * Camilla Löwy:
  *   - Removed FPS counter (this is not a benchmark)
  *   - Added a few comments
  *   - Enabled vsync
  */
 
+#if defined(_MSC_VER)
+ // Make MS math.h define M_PI
+ #define _USE_MATH_DEFINES
+#endif
 
 #include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <GL/glfw3.h>
 
-#ifndef M_PI
-#define M_PI 3.141592654
-#endif
-
-/* The program exits when this is zero.
- */
-static int running = 1;
-
-/* If non-zero, the program exits after that many seconds
- */
-static int autoexit = 0;
+#include <glad/glad.h>
+#include <GLFW/glfw3.h>
 
 /**
 
@@ -215,19 +209,19 @@ static void animate(void)
 
 
 /* change view angle, exit upon ESC */
-void key( GLFWwindow window, int k, int action )
+void key( GLFWwindow* window, int k, int s, int action, int mods )
 {
   if( action != GLFW_PRESS ) return;
 
   switch (k) {
   case GLFW_KEY_Z:
-    if( glfwGetKey( window, GLFW_KEY_LEFT_SHIFT ) )
+    if( mods & GLFW_MOD_SHIFT )
       view_rotz -= 5.0;
     else
       view_rotz += 5.0;
     break;
   case GLFW_KEY_ESCAPE:
-    running = 0;
+    glfwSetWindowShouldClose(window, GLFW_TRUE);
     break;
   case GLFW_KEY_UP:
     view_rotx += 5.0;
@@ -248,7 +242,7 @@ void key( GLFWwindow window, int k, int action )
 
 
 /* new window size */
-void reshape( GLFWwindow window, int width, int height )
+void reshape( GLFWwindow* window, int width, int height )
 {
   GLfloat h = (GLfloat) height / (GLfloat) width;
   GLfloat xmax, znear, zfar;
@@ -267,22 +261,13 @@ void reshape( GLFWwindow window, int width, int height )
 }
 
 
-/* close callback */
-static int window_close_callback(GLFWwindow window)
-{
-    running = 0;
-    return GL_TRUE;
-}
-
-
 /* program & OpenGL initialization */
-static void init(int argc, char *argv[])
+static void init(void)
 {
   static GLfloat pos[4] = {5.f, 5.f, 10.f, 0.f};
   static GLfloat red[4] = {0.8f, 0.1f, 0.f, 1.f};
   static GLfloat green[4] = {0.f, 0.8f, 0.2f, 1.f};
   static GLfloat blue[4] = {0.2f, 0.2f, 1.f, 1.f};
-  GLint i;
 
   glLightfv(GL_LIGHT0, GL_POSITION, pos);
   glEnable(GL_CULL_FACE);
@@ -310,26 +295,13 @@ static void init(int argc, char *argv[])
   glEndList();
 
   glEnable(GL_NORMALIZE);
-
-  for ( i=1; i<argc; i++ ) {
-    if (strcmp(argv[i], "-info")==0) {
-      printf("GL_RENDERER   = %s\n", (char *) glGetString(GL_RENDERER));
-      printf("GL_VERSION    = %s\n", (char *) glGetString(GL_VERSION));
-      printf("GL_VENDOR     = %s\n", (char *) glGetString(GL_VENDOR));
-      printf("GL_EXTENSIONS = %s\n", (char *) glGetString(GL_EXTENSIONS));
-    }
-    else if ( strcmp(argv[i], "-exit")==0) {
-      autoexit = 30;
-      printf("Auto Exit after %i seconds.\n", autoexit );
-    }
-  }
 }
 
 
 /* program entry */
 int main(int argc, char *argv[])
 {
-    GLFWwindow window;
+    GLFWwindow* window;
     int width, height;
 
     if( !glfwInit() )
@@ -340,7 +312,7 @@ int main(int argc, char *argv[])
 
     glfwWindowHint(GLFW_DEPTH_BITS, 16);
 
-    window = glfwCreateWindow( 300, 300, GLFW_WINDOWED, "Gears", NULL );
+    window = glfwCreateWindow( 300, 300, "Gears", NULL, NULL );
     if (!window)
     {
         fprintf( stderr, "Failed to open GLFW window\n" );
@@ -349,21 +321,21 @@ int main(int argc, char *argv[])
     }
 
     // Set callback functions
-    glfwSetWindowCloseCallback(window, window_close_callback);
-    glfwSetWindowSizeCallback(window, reshape);
+    glfwSetFramebufferSizeCallback(window, reshape);
     glfwSetKeyCallback(window, key);
 
     glfwMakeContextCurrent(window);
+    gladLoadGLLoader((GLADloadproc) glfwGetProcAddress);
     glfwSwapInterval( 1 );
 
-    glfwGetWindowSize(window, &width, &height);
+    glfwGetFramebufferSize(window, &width, &height);
     reshape(window, width, height);
 
     // Parse command-line options
-    init(argc, argv);
+    init();
 
     // Main loop
-    while( running )
+    while( !glfwWindowShouldClose(window) )
     {
         // Draw gears
         draw();

@@ -10,16 +10,19 @@
 //  because I am not a friend of orthogonal projections)
 //========================================================================
 
-#define GLFW_INCLUDE_GLU
-#include <GL/glfw3.h>
+#include <glad/glad.h>
+#include <GLFW/glfw3.h>
+
+#if defined(_MSC_VER)
+ // Make MS math.h define M_PI
+ #define _USE_MATH_DEFINES
+#endif
 
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-#ifndef M_PI
-#define M_PI 3.14159265358979323846
-#endif
+#include <linmath.h>
 
 
 //========================================================================
@@ -27,7 +30,7 @@
 //========================================================================
 
 // Mouse position
-static int xpos = 0, ypos = 0;
+static double xpos = 0, ypos = 0;
 
 // Window size
 static int width, height;
@@ -149,6 +152,7 @@ static void drawGrid(float scale, int steps)
 {
     int i;
     float x, y;
+    mat4x4 view;
 
     glPushMatrix();
 
@@ -157,10 +161,13 @@ static void drawGrid(float scale, int steps)
     glClear(GL_COLOR_BUFFER_BIT);
 
     // Setup modelview matrix (flat XY view)
-    glLoadIdentity();
-    gluLookAt(0.0, 0.0, 1.0,
-              0.0, 0.0, 0.0,
-              0.0, 1.0, 0.0);
+    {
+        vec3 eye = { 0.f, 0.f, 1.f };
+        vec3 center = { 0.f, 0.f, 0.f };
+        vec3 up = { 0.f, 1.f, 0.f };
+        mat4x4_look_at(view, eye, center, up);
+    }
+    glLoadMatrixf((const GLfloat*) view);
 
     // We don't want to update the Z-buffer
     glDepthMask(GL_FALSE);
@@ -209,13 +216,14 @@ static void drawAllViews(void)
     const GLfloat light_diffuse[4]  = {1.0f, 1.0f, 1.0f, 1.0f};
     const GLfloat light_specular[4] = {1.0f, 1.0f, 1.0f, 1.0f};
     const GLfloat light_ambient[4]  = {0.2f, 0.2f, 0.3f, 1.0f};
-    double aspect;
+    float aspect;
+    mat4x4 view, projection;
 
     // Calculate aspect of window
     if (height > 0)
-        aspect = (double) width / (double) height;
+        aspect = (float) width / (float) height;
     else
-        aspect = 1.0;
+        aspect = 1.f;
 
     // Clear screen
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
@@ -247,10 +255,13 @@ static void drawAllViews(void)
     glViewport(0, height / 2, width / 2, height / 2);
     glScissor(0, height / 2, width / 2, height / 2);
     glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-    gluLookAt(0.0f, 10.0f, 1e-3f,   // Eye-position (above)
-              0.0f, 0.0f, 0.0f,     // View-point
-              0.0f, 1.0f, 0.0f);   // Up-vector
+    {
+        vec3 eye = { 0.f, 10.f, 1e-3f };
+        vec3 center = { 0.f, 0.f, 0.f };
+        vec3 up = { 0.f, 1.f, 0.f };
+        mat4x4_look_at( view, eye, center, up );
+    }
+    glLoadMatrixf((const GLfloat*) view);
     drawGrid(0.5, 12);
     drawScene();
 
@@ -258,10 +269,13 @@ static void drawAllViews(void)
     glViewport(0, 0, width / 2, height / 2);
     glScissor(0, 0, width / 2, height / 2);
     glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-    gluLookAt(0.0f, 0.0f, 10.0f,    // Eye-position (in front of)
-              0.0f, 0.0f, 0.0f,     // View-point
-              0.0f, 1.0f, 0.0f);   // Up-vector
+    {
+        vec3 eye = { 0.f, 0.f, 10.f };
+        vec3 center = { 0.f, 0.f, 0.f };
+        vec3 up = { 0.f, 1.f, 0.f };
+        mat4x4_look_at( view, eye, center, up );
+    }
+    glLoadMatrixf((const GLfloat*) view);
     drawGrid(0.5, 12);
     drawScene();
 
@@ -269,10 +283,13 @@ static void drawAllViews(void)
     glViewport(width / 2, 0, width / 2, height / 2);
     glScissor(width / 2, 0, width / 2, height / 2);
     glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-    gluLookAt(10.0f, 0.0f, 0.0f,    // Eye-position (to the right)
-              0.0f, 0.0f, 0.0f,     // View-point
-              0.0f, 1.0f, 0.0f);   // Up-vector
+    {
+        vec3 eye = { 10.f, 0.f, 0.f };
+        vec3 center = { 0.f, 0.f, 0.f };
+        vec3 up = { 0.f, 1.f, 0.f };
+        mat4x4_look_at( view, eye, center, up );
+    }
+    glLoadMatrixf((const GLfloat*) view);
     drawGrid(0.5, 12);
     drawScene();
 
@@ -292,17 +309,23 @@ static void drawAllViews(void)
 
     // Setup perspective projection matrix
     glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    gluPerspective(65.0f, aspect, 1.0f, 50.0f);
+    mat4x4_perspective(projection,
+                       65.f * (float) M_PI / 180.f,
+                       aspect,
+                       1.f, 50.f);
+    glLoadMatrixf((const GLfloat*) projection);
 
     // Upper right view (PERSPECTIVE VIEW)
     glViewport(width / 2, height / 2, width / 2, height / 2);
     glScissor(width / 2, height / 2, width / 2, height / 2);
     glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-    gluLookAt(3.0f, 1.5f, 3.0f,     // Eye-position
-              0.0f, 0.0f, 0.0f,     // View-point
-              0.0f, 1.0f, 0.0f);   // Up-vector
+    {
+        vec3 eye = { 3.f, 1.5f, 3.f };
+        vec3 center = { 0.f, 0.f, 0.f };
+        vec3 up = { 0.f, 1.f, 0.f };
+        mat4x4_look_at( view, eye, center, up );
+    }
+    glLoadMatrixf((const GLfloat*) view);
 
     // Configure and enable light source 1
     glLightfv(GL_LIGHT1, GL_POSITION, light_position);
@@ -354,10 +377,10 @@ static void drawAllViews(void)
 
 
 //========================================================================
-// Window size callback function
+// Framebuffer size callback function
 //========================================================================
 
-static void windowSizeFun(GLFWwindow window, int w, int h)
+static void framebufferSizeFun(GLFWwindow* window, int w, int h)
 {
     width  = w;
     height = h > 0 ? h : 1;
@@ -369,9 +392,11 @@ static void windowSizeFun(GLFWwindow window, int w, int h)
 // Window refresh callback function
 //========================================================================
 
-static void windowRefreshFun(GLFWwindow window)
+static void windowRefreshFun(GLFWwindow* window)
 {
-    do_redraw = 1;
+    drawAllViews();
+    glfwSwapBuffers(window);
+    do_redraw = 0;
 }
 
 
@@ -379,24 +404,35 @@ static void windowRefreshFun(GLFWwindow window)
 // Mouse position callback function
 //========================================================================
 
-static void cursorPosFun(GLFWwindow window, int x, int y)
+static void cursorPosFun(GLFWwindow* window, double x, double y)
 {
+    int wnd_width, wnd_height, fb_width, fb_height;
+    double scale;
+
+    glfwGetWindowSize(window, &wnd_width, &wnd_height);
+    glfwGetFramebufferSize(window, &fb_width, &fb_height);
+
+    scale = (double) fb_width / (double) wnd_width;
+
+    x *= scale;
+    y *= scale;
+
     // Depending on which view was selected, rotate around different axes
     switch (active_view)
     {
         case 1:
-            rot_x += y - ypos;
-            rot_z += x - xpos;
+            rot_x += (int) (y - ypos);
+            rot_z += (int) (x - xpos);
             do_redraw = 1;
             break;
         case 3:
-            rot_x += y - ypos;
-            rot_y += x - xpos;
+            rot_x += (int) (y - ypos);
+            rot_y += (int) (x - xpos);
             do_redraw = 1;
             break;
         case 4:
-            rot_y += x - xpos;
-            rot_z += y - ypos;
+            rot_y += (int) (x - xpos);
+            rot_z += (int) (y - ypos);
             do_redraw = 1;
             break;
         default:
@@ -414,7 +450,7 @@ static void cursorPosFun(GLFWwindow window, int x, int y)
 // Mouse button callback function
 //========================================================================
 
-static void mouseButtonFun(GLFWwindow window, int button, int action)
+static void mouseButtonFun(GLFWwindow* window, int button, int action, int mods)
 {
     if ((button == GLFW_MOUSE_BUTTON_LEFT) && action == GLFW_PRESS)
     {
@@ -434,6 +470,12 @@ static void mouseButtonFun(GLFWwindow window, int button, int action)
     do_redraw = 1;
 }
 
+static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
+{
+    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
+        glfwSetWindowShouldClose(window, GLFW_TRUE);
+}
+
 
 //========================================================================
 // main
@@ -441,7 +483,7 @@ static void mouseButtonFun(GLFWwindow window, int button, int action)
 
 int main(void)
 {
-    GLFWwindow window;
+    GLFWwindow* window;
 
     // Initialise GLFW
     if (!glfwInit())
@@ -450,10 +492,10 @@ int main(void)
         exit(EXIT_FAILURE);
     }
 
-    glfwWindowHint(GLFW_DEPTH_BITS, 16);
+    glfwWindowHint(GLFW_SAMPLES, 4);
 
     // Open OpenGL window
-    window = glfwCreateWindow(500, 500, GLFW_WINDOWED, "Split view demo", NULL);
+    window = glfwCreateWindow(500, 500, "Split view demo", NULL, NULL);
     if (!window)
     {
         fprintf(stderr, "Failed to open GLFW window\n");
@@ -463,46 +505,35 @@ int main(void)
     }
 
     // Set callback functions
-    glfwSetWindowSizeCallback(window, windowSizeFun);
+    glfwSetFramebufferSizeCallback(window, framebufferSizeFun);
     glfwSetWindowRefreshCallback(window, windowRefreshFun);
     glfwSetCursorPosCallback(window, cursorPosFun);
     glfwSetMouseButtonCallback(window, mouseButtonFun);
+    glfwSetKeyCallback(window, key_callback);
 
     // Enable vsync
     glfwMakeContextCurrent(window);
+    gladLoadGLLoader((GLADloadproc) glfwGetProcAddress);
     glfwSwapInterval(1);
 
-    glfwGetWindowSize(window, &width, &height);
-    windowSizeFun(window, width, height);
+    if (GLAD_GL_ARB_multisample || GLAD_GL_VERSION_1_3)
+        glEnable(GL_MULTISAMPLE_ARB);
 
-    // Enable sticky keys
-    glfwSetInputMode(window, GLFW_STICKY_KEYS, GL_TRUE);
-
-    // Enable mouse cursor (only needed for fullscreen mode)
-    glfwSetInputMode(window, GLFW_CURSOR_MODE, GLFW_CURSOR_NORMAL);
+    glfwGetFramebufferSize(window, &width, &height);
+    framebufferSizeFun(window, width, height);
 
     // Main loop
     for (;;)
     {
         // Only redraw if we need to
         if (do_redraw)
-        {
-            // Draw all views
-            drawAllViews();
-
-            // Swap buffers
-            glfwSwapBuffers(window);
-
-            do_redraw = 0;
-        }
+            windowRefreshFun(window);
 
         // Wait for new events
         glfwWaitEvents();
 
-        // Check if the ESC key was pressed or the window should be closed
-        if (glfwGetKey(window, GLFW_KEY_ESCAPE))
-            break;
-        if (glfwGetWindowParam(window, GLFW_CLOSE_REQUESTED))
+        // Check if the window should be closed
+        if (glfwWindowShouldClose(window))
             break;
     }
 

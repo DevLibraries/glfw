@@ -5,19 +5,22 @@
  * Modified for GLFW by Sylvain Hellegouarch - sh@programmationworld.com
  * Modified for variable frame rate by Marcus Geelnard
  * 2003-Jan-31: Minor cleanups and speedups / MG
- * 2010-10-24: Formatting and cleanup - Camilla Berglund
+ * 2010-10-24: Formatting and cleanup - Camilla Löwy
  *****************************************************************************/
+
+#if defined(_MSC_VER)
+ // Make MS math.h define M_PI
+ #define _USE_MATH_DEFINES
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 
-#define GLFW_INCLUDE_GLU
-#include <GL/glfw3.h>
+#include <glad/glad.h>
+#include <GLFW/glfw3.h>
 
-#ifndef M_PI
- #define M_PI 3.1415926535897932384626433832795
-#endif
+#include <linmath.h>
 
 // Maximum delta T to allow for differential calculations
 #define MAX_DELTA_T 0.01
@@ -28,11 +31,8 @@
 GLfloat alpha = 210.f, beta = -70.f;
 GLfloat zoom = 2.f;
 
-GLboolean running = GL_TRUE;
-GLboolean locked = GL_FALSE;
-
-int cursorX;
-int cursorY;
+double cursorX;
+double cursorY;
 
 struct Vertex
 {
@@ -145,7 +145,7 @@ void init_grid(void)
 // Draw scene
 //========================================================================
 
-void draw_scene(GLFWwindow window)
+void draw_scene(GLFWwindow* window)
 {
     // Clear the color and depth buffers
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -258,10 +258,20 @@ void calc_grid(void)
 
 
 //========================================================================
+// Print errors
+//========================================================================
+
+static void error_callback(int error, const char* description)
+{
+    fprintf(stderr, "Error: %s\n", description);
+}
+
+
+//========================================================================
 // Handle key strokes
 //========================================================================
 
-void key_callback(GLFWwindow window, int key, int action)
+void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
     if (action != GLFW_PRESS)
         return;
@@ -269,7 +279,7 @@ void key_callback(GLFWwindow window, int key, int action)
     switch (key)
     {
         case GLFW_KEY_ESCAPE:
-            running = 0;
+            glfwSetWindowShouldClose(window, GLFW_TRUE);
             break;
         case GLFW_KEY_SPACE:
             init_grid();
@@ -304,21 +314,18 @@ void key_callback(GLFWwindow window, int key, int action)
 // Callback function for mouse button events
 //========================================================================
 
-void mouse_button_callback(GLFWwindow window, int button, int action)
+void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 {
     if (button != GLFW_MOUSE_BUTTON_LEFT)
         return;
 
     if (action == GLFW_PRESS)
     {
-        glfwSetInputMode(window, GLFW_CURSOR_MODE, GLFW_CURSOR_CAPTURED);
-        locked = GL_TRUE;
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+        glfwGetCursorPos(window, &cursorX, &cursorY);
     }
     else
-    {
-        locked = GL_FALSE;
-        glfwSetInputMode(window, GLFW_CURSOR_MODE, GLFW_CURSOR_NORMAL);
-    }
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 }
 
 
@@ -326,16 +333,16 @@ void mouse_button_callback(GLFWwindow window, int button, int action)
 // Callback function for cursor motion events
 //========================================================================
 
-void cursor_position_callback(GLFWwindow window, int x, int y)
+void cursor_position_callback(GLFWwindow* window, double x, double y)
 {
-    if (locked)
+    if (glfwGetInputMode(window, GLFW_CURSOR) == GLFW_CURSOR_DISABLED)
     {
-        alpha += (x - cursorX) / 10.f;
-        beta += (y - cursorY) / 10.f;
-    }
+        alpha += (GLfloat) (x - cursorX) / 10.f;
+        beta += (GLfloat) (y - cursorY) / 10.f;
 
-    cursorX = x;
-    cursorY = y;
+        cursorX = x;
+        cursorY = y;
+    }
 }
 
 
@@ -343,7 +350,7 @@ void cursor_position_callback(GLFWwindow window, int x, int y)
 // Callback function for scroll events
 //========================================================================
 
-void scroll_callback(GLFWwindow window, double x, double y)
+void scroll_callback(GLFWwindow* window, double x, double y)
 {
     zoom += (float) y / 4.f;
     if (zoom < 0)
@@ -352,12 +359,13 @@ void scroll_callback(GLFWwindow window, double x, double y)
 
 
 //========================================================================
-// Callback function for window resize events
+// Callback function for framebuffer resize events
 //========================================================================
 
-void window_size_callback(GLFWwindow window, int width, int height)
+void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {
     float ratio = 1.f;
+    mat4x4 projection;
 
     if (height > 0)
         ratio = (float) width / (float) height;
@@ -367,19 +375,11 @@ void window_size_callback(GLFWwindow window, int width, int height)
 
     // Change to the projection matrix and set our viewing volume
     glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    gluPerspective(60.0, ratio, 1.0, 1024.0);
-}
-
-
-//========================================================================
-// Callback function for window close events
-//========================================================================
-
-static int window_close_callback(GLFWwindow window)
-{
-    running = GL_FALSE;
-    return GL_TRUE;
+    mat4x4_perspective(projection,
+                       60.f * (float) M_PI / 180.f,
+                       ratio,
+                       1.f, 1024.f);
+    glLoadMatrixf((const GLfloat*) projection);
 }
 
 
@@ -389,35 +389,34 @@ static int window_close_callback(GLFWwindow window)
 
 int main(int argc, char* argv[])
 {
-    GLFWwindow window;
+    GLFWwindow* window;
     double t, dt_total, t_old;
     int width, height;
 
-    if (!glfwInit())
-    {
-        fprintf(stderr, "GLFW initialization failed\n");
-        exit(EXIT_FAILURE);
-    }
+    glfwSetErrorCallback(error_callback);
 
-    window = glfwCreateWindow(640, 480, GLFW_WINDOWED, "Wave Simulation", NULL);
+    if (!glfwInit())
+        exit(EXIT_FAILURE);
+
+    window = glfwCreateWindow(640, 480, "Wave Simulation", NULL, NULL);
     if (!window)
     {
-        fprintf(stderr, "Could not open window\n");
+        glfwTerminate();
         exit(EXIT_FAILURE);
     }
 
     glfwSetKeyCallback(window, key_callback);
-    glfwSetWindowCloseCallback(window, window_close_callback);
-    glfwSetWindowSizeCallback(window, window_size_callback);
+    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glfwSetMouseButtonCallback(window, mouse_button_callback);
     glfwSetCursorPosCallback(window, cursor_position_callback);
     glfwSetScrollCallback(window, scroll_callback);
 
     glfwMakeContextCurrent(window);
+    gladLoadGLLoader((GLADloadproc) glfwGetProcAddress);
     glfwSwapInterval(1);
 
-    glfwGetWindowSize(window, &width, &height);
-    window_size_callback(window, width, height);
+    glfwGetFramebufferSize(window, &width, &height);
+    framebuffer_size_callback(window, width, height);
 
     // Initialize OpenGL
     init_opengl();
@@ -430,7 +429,7 @@ int main(int argc, char* argv[])
     // Initialize timer
     t_old = glfwGetTime() - 0.01;
 
-    while (running)
+    while (!glfwWindowShouldClose(window))
     {
         t = glfwGetTime();
         dt_total = t - t_old;

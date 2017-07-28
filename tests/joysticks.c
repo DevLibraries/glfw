@@ -1,6 +1,6 @@
 //========================================================================
 // Joystick input test
-// Copyright (c) Camilla Berglund <elmindreda@elmindreda.org>
+// Copyright (c) Camilla Löwy <elmindreda@glfw.org>
 //
 // This software is provided 'as-is', without any express or implied
 // warranty. In no event will the authors be held liable for any damages
@@ -28,189 +28,277 @@
 //
 //========================================================================
 
-#include <GL/glfw3.h>
+#include <glad/glad.h>
+#include <GLFW/glfw3.h>
+
+#define NK_IMPLEMENTATION
+#define NK_INCLUDE_FIXED_TYPES
+#define NK_INCLUDE_FONT_BAKING
+#define NK_INCLUDE_DEFAULT_FONT
+#define NK_INCLUDE_DEFAULT_ALLOCATOR
+#define NK_INCLUDE_VERTEX_BUFFER_OUTPUT
+#define NK_INCLUDE_STANDARD_VARARGS
+#define NK_BUTTON_TRIGGER_ON_RELEASE
+#include <nuklear.h>
+
+#define NK_GLFW_GL2_IMPLEMENTATION
+#include <nuklear_glfw_gl2.h>
 
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 
-typedef struct Joystick
-{
-    GLboolean present;
-    char* name;
-    float* axes;
-    unsigned char* buttons;
-    int axis_count;
-    int button_count;
-} Joystick;
+#ifdef _MSC_VER
+#define strdup(x) _strdup(x)
+#endif
 
-static Joystick joysticks[GLFW_JOYSTICK_LAST - GLFW_JOYSTICK_1 + 1];
+static GLFWwindow* window;
+static int joysticks[GLFW_JOYSTICK_LAST + 1];
 static int joystick_count = 0;
 
-static void window_size_callback(GLFWwindow window, int width, int height)
+static void error_callback(int error, const char* description)
 {
-    glViewport(0, 0, width, height);
+    fprintf(stderr, "Error: %s\n", description);
 }
 
-static void draw_joystick(Joystick* j, int x, int y, int width, int height)
+static void joystick_callback(int jid, int event)
 {
-    int i;
-    int axis_width, axis_height;
-    int button_width, button_height;
-
-    axis_width = width / j->axis_count;
-    axis_height = 3 * height / 4;
-
-    button_width = width / j->button_count;
-    button_height = height / 4;
-
-    for (i = 0;  i < j->axis_count;  i++)
+    if (event == GLFW_CONNECTED)
+        joysticks[joystick_count++] = jid;
+    else if (event == GLFW_DISCONNECTED)
     {
-        float value = j->axes[i] / 2.f + 0.5f;
+        int i;
 
-        glColor3f(0.3f, 0.3f, 0.3f);
-        glRecti(x + i * axis_width,
-                y,
-                x + (i + 1) * axis_width,
-                y + axis_height);
+        for (i = 0;  i < joystick_count;  i++)
+        {
+            if (joysticks[i] == jid)
+                break;
+        }
 
-        glColor3f(1.f, 1.f, 1.f);
-        glRecti(x + i * axis_width,
-                y + (int) (value * (axis_height - 5)),
-                x + (i + 1) * axis_width,
-                y + 5 + (int) (value * (axis_height - 5)));
+        for (i = i + 1;  i < joystick_count;  i++)
+            joysticks[i - 1] = joysticks[i];
+
+        joystick_count--;
     }
 
-    for (i = 0;  i < j->button_count;  i++)
-    {
-        if (j->buttons[i])
-            glColor3f(1.f, 1.f, 1.f);
-        else
-            glColor3f(0.3f, 0.3f, 0.3f);
-
-        glRecti(x + i * button_width,
-                y + axis_height,
-                x + (i + 1) * button_width,
-                y + axis_height + button_height);
-    }
+    if (!glfwGetWindowAttrib(window, GLFW_FOCUSED))
+        glfwRequestWindowAttention(window);
 }
 
-static void draw_joysticks(GLFWwindow window)
+static const char* joystick_label(int jid)
 {
-    int i, width, height;
-
-    glfwGetWindowSize(window, &width, &height);
-
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    glOrtho(0.f, width, height, 0.f, 1.f, -1.f);
-    glMatrixMode(GL_MODELVIEW);
-
-    for (i = 0;  i < sizeof(joysticks) / sizeof(Joystick);  i++)
-    {
-        Joystick* j = joysticks + i;
-
-        if (j->present)
-        {
-            draw_joystick(j,
-                          0, i * height / joystick_count,
-                          width, height / joystick_count);
-        }
-    }
+    static char label[1024];
+    snprintf(label, sizeof(label), "%i: %s", jid + 1, glfwGetJoystickName(jid));
+    return label;
 }
 
-static void refresh_joysticks(void)
+static void hat_widget(struct nk_context* nk, unsigned char state)
 {
-    int i;
+    float radius;
+    struct nk_rect area;
+    struct nk_vec2 center;
 
-    for (i = 0;  i < sizeof(joysticks) / sizeof(Joystick);  i++)
+    if (nk_widget(&area, nk) != NK_WIDGET_VALID)
+        return;
+
+    center = nk_vec2(area.x + area.w / 2.f, area.y + area.h / 2.f);
+    radius = NK_MIN(area.w, area.h) / 2.f;
+
+    nk_stroke_circle(nk_window_get_canvas(nk),
+                     nk_rect(center.x - radius,
+                             center.y - radius,
+                             radius * 2.f,
+                             radius * 2.f),
+                     1.f,
+                     nk_rgb(175, 175, 175));
+
+    if (state)
     {
-        Joystick* j = joysticks + i;
-
-        if (glfwGetJoystickParam(GLFW_JOYSTICK_1 + i, GLFW_PRESENT))
+        const float angles[] =
         {
-            int axis_count, button_count;
+            0.f,           0.f,
+            NK_PI * 1.5f,  NK_PI * 1.75f,
+            NK_PI,         0.f,
+            NK_PI * 1.25f, 0.f,
+            NK_PI * 0.5f,  NK_PI * 0.25f,
+            0.f,           0.f,
+            NK_PI * 0.75f, 0.f,
+        };
+        const float cosa = nk_cos(angles[state]);
+        const float sina = nk_sin(angles[state]);
+        const struct nk_vec2 p0 = nk_vec2(0.f, -radius);
+        const struct nk_vec2 p1 = nk_vec2( radius / 2.f, -radius / 3.f);
+        const struct nk_vec2 p2 = nk_vec2(-radius / 2.f, -radius / 3.f);
 
-            free(j->name);
-            j->name = strdup(glfwGetJoystickName(GLFW_JOYSTICK_1 + i));
-
-            axis_count = glfwGetJoystickParam(GLFW_JOYSTICK_1 + i, GLFW_AXES);
-            if (axis_count != j->axis_count)
-            {
-                j->axis_count = axis_count;
-                j->axes = realloc(j->axes, j->axis_count * sizeof(float));
-            }
-
-            glfwGetJoystickAxes(GLFW_JOYSTICK_1 + i, j->axes, j->axis_count);
-
-            button_count = glfwGetJoystickParam(GLFW_JOYSTICK_1 + i, GLFW_BUTTONS);
-            if (button_count != j->button_count)
-            {
-                j->button_count = button_count;
-                j->buttons = realloc(j->buttons, j->button_count);
-            }
-
-            glfwGetJoystickButtons(GLFW_JOYSTICK_1 + i, j->buttons, j->button_count);
-
-            if (!j->present)
-            {
-                printf("Found joystick %i named \'%s\' with %i axes, %i buttons\n",
-                       i + 1, j->name, j->axis_count, j->button_count);
-
-                joystick_count++;
-            }
-
-            j->present = GL_TRUE;
-        }
-        else
-        {
-            if (j->present)
-            {
-                printf("Lost joystick %i named \'%s\'\n", i + 1, j->name);
-
-                free(j->name);
-                free(j->axes);
-                free(j->buttons);
-                memset(j, 0, sizeof(Joystick));
-
-                joystick_count--;
-            }
-        }
+        nk_fill_triangle(nk_window_get_canvas(nk),
+                            center.x + cosa * p0.x + sina * p0.y,
+                            center.y + cosa * p0.y - sina * p0.x,
+                            center.x + cosa * p1.x + sina * p1.y,
+                            center.y + cosa * p1.y - sina * p1.x,
+                            center.x + cosa * p2.x + sina * p2.y,
+                            center.y + cosa * p2.y - sina * p2.x,
+                            nk_rgb(175, 175, 175));
     }
 }
 
 int main(void)
 {
-    GLFWwindow window;
+    int jid, hat_buttons = GLFW_FALSE;
+    struct nk_context* nk;
+    struct nk_font_atlas* atlas;
 
     memset(joysticks, 0, sizeof(joysticks));
 
-    if (!glfwInit())
-    {
-        fprintf(stderr, "Failed to initialize GLFW: %s\n", glfwErrorString(glfwGetError()));
-        exit(EXIT_FAILURE);
-    }
+    glfwSetErrorCallback(error_callback);
 
-    window = glfwCreateWindow(640, 480, GLFW_WINDOWED, "Joystick Test", NULL);
+    if (!glfwInit())
+        exit(EXIT_FAILURE);
+
+    window = glfwCreateWindow(800, 600, "Joystick Test", NULL, NULL);
     if (!window)
     {
         glfwTerminate();
-
-        fprintf(stderr, "Failed to open GLFW window: %s\n", glfwErrorString(glfwGetError()));
         exit(EXIT_FAILURE);
     }
 
-    glfwSetWindowSizeCallback(window, window_size_callback);
-
     glfwMakeContextCurrent(window);
+    gladLoadGLLoader((GLADloadproc) glfwGetProcAddress);
     glfwSwapInterval(1);
 
-    while (!glfwGetWindowParam(window, GLFW_CLOSE_REQUESTED))
-    {
-        glClear(GL_COLOR_BUFFER_BIT);
+    nk = nk_glfw3_init(window, NK_GLFW3_INSTALL_CALLBACKS);
+    nk_glfw3_font_stash_begin(&atlas);
+    nk_glfw3_font_stash_end();
 
-        refresh_joysticks();
-        draw_joysticks(window);
+    for (jid = GLFW_JOYSTICK_1;  jid <= GLFW_JOYSTICK_LAST;  jid++)
+    {
+        if (glfwJoystickPresent(jid))
+            joysticks[joystick_count++] = jid;
+    }
+
+    glfwSetJoystickCallback(joystick_callback);
+
+    while (!glfwWindowShouldClose(window))
+    {
+        int i, width, height;
+
+        glfwGetWindowSize(window, &width, &height);
+
+        glClear(GL_COLOR_BUFFER_BIT);
+        nk_glfw3_new_frame();
+
+        if (nk_begin(nk,
+                     "Joysticks",
+                     nk_rect(width - 200.f, 0.f, 200.f, (float) height),
+                     NK_WINDOW_MINIMIZABLE |
+                     NK_WINDOW_TITLE))
+        {
+            nk_layout_row_dynamic(nk, 30, 1);
+
+            nk_checkbox_label(nk, "Hat buttons", &hat_buttons);
+
+            if (joystick_count)
+            {
+                for (i = 0;  i < joystick_count;  i++)
+                {
+                    if (nk_button_label(nk, joystick_label(joysticks[i])))
+                        nk_window_set_focus(nk, joystick_label(joysticks[i]));
+                }
+            }
+            else
+                nk_label(nk, "No joysticks connected", NK_TEXT_LEFT);
+        }
+
+        nk_end(nk);
+
+        for (i = 0;  i < joystick_count;  i++)
+        {
+            if (nk_begin(nk,
+                         joystick_label(joysticks[i]),
+                         nk_rect(i * 20.f, i * 20.f, 550.f, 570.f),
+                         NK_WINDOW_BORDER |
+                         NK_WINDOW_MOVABLE |
+                         NK_WINDOW_SCALABLE |
+                         NK_WINDOW_MINIMIZABLE |
+                         NK_WINDOW_TITLE))
+            {
+                int j, axis_count, button_count, hat_count;
+                const float* axes;
+                const unsigned char* buttons;
+                const unsigned char* hats;
+                GLFWgamepadstate state;
+
+                nk_layout_row_dynamic(nk, 30, 1);
+                nk_label(nk, "Joystick state", NK_TEXT_LEFT);
+
+                axes = glfwGetJoystickAxes(joysticks[i], &axis_count);
+                buttons = glfwGetJoystickButtons(joysticks[i], &button_count);
+                hats = glfwGetJoystickHats(joysticks[i], &hat_count);
+
+                if (!hat_buttons)
+                    button_count -= hat_count * 4;
+
+                for (j = 0;  j < axis_count;  j++)
+                    nk_slide_float(nk, -1.f, axes[j], 1.f, 0.1f);
+
+                nk_layout_row_dynamic(nk, 30, 12);
+
+                for (j = 0;  j < button_count;  j++)
+                {
+                    char name[16];
+                    snprintf(name, sizeof(name), "%i", j + 1);
+                    nk_select_label(nk, name, NK_TEXT_CENTERED, buttons[j]);
+                }
+
+                nk_layout_row_dynamic(nk, 30, 8);
+
+                for (j = 0;  j < hat_count;  j++)
+                    hat_widget(nk, hats[j]);
+
+                nk_layout_row_dynamic(nk, 30, 1);
+
+                if (glfwGetGamepadState(joysticks[i], &state))
+                {
+                    int hat = 0;
+                    const char* names[GLFW_GAMEPAD_BUTTON_LAST + 1 - 4] =
+                    {
+                        "A", "B", "X", "Y",
+                        "LB", "RB",
+                        "Back", "Start", "Guide",
+                        "LT", "RT",
+                    };
+
+                    nk_label(nk, "Gamepad state", NK_TEXT_LEFT);
+
+                    nk_layout_row_dynamic(nk, 30, 2);
+
+                    for (j = 0;  j <= GLFW_GAMEPAD_AXIS_LAST;  j++)
+                        nk_slide_float(nk, -1.f, state.axes[j], 1.f, 0.1f);
+
+                    nk_layout_row_dynamic(nk, 30, GLFW_GAMEPAD_BUTTON_LAST + 1 - 4);
+
+                    for (j = 0;  j <= GLFW_GAMEPAD_BUTTON_LAST - 4;  j++)
+                        nk_select_label(nk, names[j], NK_TEXT_CENTERED, state.buttons[j]);
+
+                    if (state.buttons[GLFW_GAMEPAD_BUTTON_DPAD_UP])
+                        hat |= GLFW_HAT_UP;
+                    if (state.buttons[GLFW_GAMEPAD_BUTTON_DPAD_RIGHT])
+                        hat |= GLFW_HAT_RIGHT;
+                    if (state.buttons[GLFW_GAMEPAD_BUTTON_DPAD_DOWN])
+                        hat |= GLFW_HAT_DOWN;
+                    if (state.buttons[GLFW_GAMEPAD_BUTTON_DPAD_LEFT])
+                        hat |= GLFW_HAT_LEFT;
+
+                    nk_layout_row_dynamic(nk, 30, 8);
+                    hat_widget(nk, hat);
+                }
+                else
+                    nk_label(nk, "Joystick has no gamepad mapping", NK_TEXT_LEFT);
+            }
+
+            nk_end(nk);
+        }
+
+        nk_glfw3_render(NK_ANTI_ALIASING_ON, 10000, 1000);
 
         glfwSwapBuffers(window);
         glfwPollEvents();

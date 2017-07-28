@@ -1,10 +1,7 @@
 //========================================================================
-// GLFW - An OpenGL library
-// Platform:    Cocoa
-// API Version: 3.0
-// WWW:         http://www.glfw.org/
+// GLFW 3.3 macOS - www.glfw.org
 //------------------------------------------------------------------------
-// Copyright (c) 2009-2010 Camilla Berglund <elmindreda@elmindreda.org>
+// Copyright (c) 2009-2016 Camilla Löwy <elmindreda@glfw.org>
 //
 // This software is provided 'as-is', without any express or implied
 // warranty. In no event will the authors be held liable for any damages
@@ -32,31 +29,18 @@
 #include <mach/mach_time.h>
 
 
-//========================================================================
-// Return raw time
-//========================================================================
-
-static uint64_t getRawTime(void)
-{
-    return mach_absolute_time();
-}
-
-
 //////////////////////////////////////////////////////////////////////////
 //////                       GLFW internal API                      //////
 //////////////////////////////////////////////////////////////////////////
 
-//========================================================================
 // Initialise timer
-//========================================================================
-
-void _glfwInitTimer(void)
+//
+void _glfwInitTimerNS(void)
 {
     mach_timebase_info_data_t info;
     mach_timebase_info(&info);
 
-    _glfwLibrary.NS.timer.resolution = (double) info.numer / (info.denom * 1.0e9);
-    _glfwLibrary.NS.timer.base = getRawTime();
+    _glfw.timer.ns.frequency = (info.denom * 1e9) / info.numer;
 }
 
 
@@ -64,24 +48,13 @@ void _glfwInitTimer(void)
 //////                       GLFW platform API                      //////
 //////////////////////////////////////////////////////////////////////////
 
-//========================================================================
-// Return timer value in seconds
-//========================================================================
-
-double _glfwPlatformGetTime(void)
+uint64_t _glfwPlatformGetTimerValue(void)
 {
-    return (double) (getRawTime() - _glfwLibrary.NS.timer.base) *
-        _glfwLibrary.NS.timer.resolution;
+    return mach_absolute_time();
 }
 
-
-//========================================================================
-// Set timer value in seconds
-//========================================================================
-
-void _glfwPlatformSetTime(double time)
+uint64_t _glfwPlatformGetTimerFrequency(void)
 {
-    _glfwLibrary.NS.timer.base = getRawTime() -
-        (uint64_t) (time / _glfwLibrary.NS.timer.resolution);
+    return _glfw.timer.ns.frequency;
 }
 
